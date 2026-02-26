@@ -24,6 +24,7 @@ const Usage =
     \\  -t                        equivalent to -vT
     \\  -T, --show-tabs           display TAB characters as ^I
     \\  -v, --show-nonprinting    use ^ and M- notation, except for LFD and TAB
+    \\  -x, --exit-on-fail        immediately fail program upon invalid file
     \\      --help                display this help and exit
     \\      --version             output version information and exit
     \\
@@ -70,6 +71,7 @@ const Options = struct {
     ansi_width: usize,
     no_kitty: bool,
     kitty_only: bool,
+    exit_on_fail: bool,
 };
 
 // --- CP437+ANSI Terminal Emulation Types ---
@@ -376,6 +378,7 @@ pub fn main() !void {
         .ansi_width = 80,
         .no_kitty = false,
         .kitty_only = false,
+        .exit_on_fail = false,
     };
 
     var has_files = false;
@@ -450,6 +453,10 @@ pub fn main() !void {
                 options.show_nonprinting = true;
                 continue;
             }
+            if (std.mem.eql(u8, arg, "--exit-on-fail")) {
+                options.exit_on_fail = true;
+                continue;
+            }
             // Combined short options
             if (std.mem.startsWith(u8, arg, "-") and arg.len > 1 and arg[1] != '-') {
                 const shorts = arg[1..];
@@ -501,6 +508,9 @@ pub fn main() !void {
                         'v' => {
                             options.show_nonprinting = true;
                         },
+                        'x' => {
+                            options.exit_on_fail = true;
+                        },
                         else => {},
                     }
                 }
@@ -538,7 +548,7 @@ fn catFile(
     } else {
         file = std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch {
             std.debug.print("{s}: {s}: No such file or directory\n", .{prog_name, filename});
-            return;
+            return if(options.exit_on_fail) error.NoSuchFile;
         };
         file_opened = true;
     }
@@ -553,7 +563,7 @@ fn catFile(
     if (!is_stdin) {
         const len = file.read(&head_buf) catch |err| {
             std.debug.print("{s}: {s}: {}\n", .{prog_name, filename, err});
-            return;
+            return if(options.exit_on_fail) err;
         };
         if (len == 0) {
             return;
@@ -569,7 +579,7 @@ fn catFile(
         }
         if (options.kitty_only) {
             std.debug.print("blackcat: {s}: Not supported by Kitty protocol\n", .{filename});
-            return;
+            return if(options.exit_on_fail) error.NotAnImage;
         }
     }
 
@@ -600,6 +610,7 @@ fn catFile(
     {
         fastCat(&file, stdout) catch |err| {
             std.debug.print("{s}: {s}: {}\n", .{prog_name, filename, err});
+            if(options.exit_on_fail) return err;
         };
         return;
     }
